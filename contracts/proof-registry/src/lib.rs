@@ -105,6 +105,9 @@ enum DataKey {
     Successor,
     SuccessorActivationDelay,
     SuccessorNomination,
+    /// Monotonic successor epoch counter; incremented on each successor activation.
+    /// Prevents rollback by binding state to a specific governance epoch.
+    SuccessorEpoch,
     MigrationCheckpoint,
     Decommissioned,
     /// Write-once deployment domain mixed into the deployment identity.
@@ -801,6 +804,9 @@ impl ProofRegistryContract {
         env.storage()
             .instance()
             .set(&DataKey::RegistryEpoch, &0_u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::SuccessorEpoch, &earnproof_shared::SUCCESSOR_EPOCH_MIN);
         let genesis = GenesisRecord {
             genesis_id: earnproof_shared::compute_genesis_id(&env, "earnproof_proof_registry"),
             initialized_at_ledger: env.ledger().sequence(),
