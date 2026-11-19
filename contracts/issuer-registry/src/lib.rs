@@ -44,6 +44,9 @@ enum DataKey {
     Successor,
     SuccessorActivationDelay,
     SuccessorNomination,
+    /// Monotonic successor epoch counter; incremented on each successor activation.
+    /// Prevents rollback by binding state to a specific governance epoch.
+    SuccessorEpoch,
     MigrationCheckpoint,
     Decommissioned,
     /// Write-once deployment domain mixed into the deployment identity.
@@ -627,6 +630,9 @@ impl IssuerRegistryContract {
         env.storage().instance().set(&DataKey::IssuerEpoch, &0_u64);
         env.storage()
             .instance()
+            .set(&DataKey::SuccessorEpoch, &earnproof_shared::SUCCESSOR_EPOCH_MIN);
+        env.storage()
+            .instance()
             .set(&DataKey::MaxActiveIssuers, &u32::MAX);
         env.storage()
             .instance()
@@ -928,6 +934,15 @@ impl IssuerRegistryContract {
         }
     }
 
+    /// Returns the current successor epoch. Incremented each time a successor is activated.
+    /// Prevents rollback by binding state to a specific governance epoch.
+    pub fn get_successor_epoch(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&DataKey::SuccessorEpoch)
+            .unwrap_or(earnproof_shared::SUCCESSOR_EPOCH_MIN)
+    }
+
     pub fn activate_successor(env: Env, proposal_id: BytesN<32>) -> Result<(), IssuerError> {
         Self::ensure_not_decommissioned(&env)?;
         let admin = Self::get_admin(env.clone()).map_err(|_| IssuerError::IssuerNotFound)?;
@@ -955,6 +970,24 @@ impl IssuerRegistryContract {
         env.storage()
             .instance()
             .remove(&DataKey::SuccessorNomination);
+        
+        // Increment successor epoch to prevent rollback to pre-activation state
+        let current_epoch = Self::get_successor_epoch(env.clone());
+        let new_epoch = current_epoch.saturating_add(1);
+        env.storage()
+            .instance()
+            .set(&DataKey::SuccessorEpoch, &new_epoch);
+        
+        // Bump issuer epoch to mark governance state transition
+        let issuer_epoch: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::IssuerEpoch)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::IssuerEpoch, &issuer_epoch.saturating_add(1));
+        
         ContractDecommissioned {
             proposal_id,
             old_instance: env.current_contract_address(),
